@@ -2,6 +2,10 @@
 
 A late-night restaurant ordering site with phone OTP sign-in, a category menu, a cart, and live simulated delivery tracking. React + TypeScript client, Express API, one server for both.
 
+## Live website
+
+**https://night-craving-orcin.vercel.app**
+
 ## Run locally
 
 Requirements: Node.js 20+ (tested on Node 24).
