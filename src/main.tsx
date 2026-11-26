@@ -1,5 +1,10 @@
 import {createRoot} from 'react-dom/client';
+import AdminApp from './admin/AdminApp.tsx';
 import App from './App.tsx';
 import './index.css';
 
-createRoot(document.getElementById('root')!).render(<App />);
+const isAdminPage = window.location.pathname.replace(/\/$/, '') === '/admin';
+
+createRoot(document.getElementById('root')!).render(
+  isAdminPage ? <AdminApp /> : <App />
+);

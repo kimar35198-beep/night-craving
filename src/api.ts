@@ -320,6 +320,45 @@ export async function createOrder(
   return computeOrderView(order);
 }
 
+export interface AdminStats {
+  totalOrders: number;
+  activeOrders: number;
+  deliveredOrders: number;
+  revenueCents: number;
+}
+
+function requireBackend(): void {
+  if (IS_STATIC_DEMO) {
+    throw new Error('Admin requires the backend server. Run npm run dev or deploy the Docker image.');
+  }
+}
+
+export async function adminLogin(password: string): Promise<string> {
+  requireBackend();
+  const data = await apiRequest<{ token: string }>('/api/admin/login', jsonPost({ password }));
+  return data.token;
+}
+
+export async function getAdminOrders(token: string): Promise<TrackedOrder[]> {
+  requireBackend();
+  const data = await apiRequest<{ orders: TrackedOrder[] }>('/api/admin/orders', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return Array.isArray(data.orders) ? data.orders : [];
+}
+
+export async function getAdminStats(token: string): Promise<AdminStats> {
+  requireBackend();
+  return apiRequest<AdminStats>('/api/admin/stats', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function advanceAdminOrder(token: string, orderId: string): Promise<void> {
+  requireBackend();
+  await apiRequest(`/api/admin/orders/${encodeURIComponent(orderId)}/advance`, jsonPost({}, token));
+}
+
 export async function advanceOrder(token: string, orderId: string): Promise<TrackedOrder> {
   if (!IS_STATIC_DEMO) {
     const data = await apiRequest<{ order: TrackedOrder }>(

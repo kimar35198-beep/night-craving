@@ -362,6 +362,9 @@ export default function App() {
             >
               Bag
             </button>
+            <a href="/admin" className="hover:text-zinc-300 transition-colors">
+              Admin
+            </a>
           </div>
         </div>
       </footer>

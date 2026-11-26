@@ -60,6 +60,12 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             {bagCount > 0 ? `Bag (${bagCount})` : 'Bag'}
           </button>
+          <a
+            href="/admin"
+            className="hover:text-zinc-100 transition-colors duration-150 whitespace-nowrap shrink-0 py-1 border-b border-transparent hover:border-zinc-500"
+          >
+            Admin
+          </a>
         </nav>
 
         {/* Zone 3: 1 primary action */}
@@ -133,6 +139,13 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             {bagCount > 0 ? `Bag (${bagCount})` : 'Bag'}
           </button>
+          <a
+            href="/admin"
+            onClick={() => setMobileOpen(false)}
+            className="block py-2 text-sm text-zinc-300 hover:text-zinc-100"
+          >
+            Admin
+          </a>
           <div className="pt-2 border-t border-zinc-800">
             {session ? (
               <button

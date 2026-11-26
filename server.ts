@@ -14,12 +14,18 @@ const PORT = Number(process.env.PORT || 3000);
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 const HAS_SMS_PROVIDER = Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN);
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'nightcraving-admin';
+const BLOB_TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
+const BLOB_PATH = 'night-craving/orders.json';
 
 if (IS_PRODUCTION && !process.env.SESSION_SECRET) {
   console.warn('[night-craving] SESSION_SECRET is not set; sessions will reset on restart. Set it in production.');
 }
 if (IS_PRODUCTION && !HAS_SMS_PROVIDER) {
   console.warn('[night-craving] No SMS provider configured: verification codes are returned to the browser (demo mode). Do not expose publicly.');
+}
+if (IS_PRODUCTION && !process.env.ADMIN_PASSWORD) {
+  console.warn('[night-craving] ADMIN_PASSWORD is not set; using the default demo password. Change it before going public.');
 }
 
 interface ServerMenuItem {
@@ -192,6 +198,40 @@ interface AuthenticatedRequest extends Request {
 const otpStore = new Map<string, OtpRecord>();
 const orderStore = new Map<string, StoredOrder>();
 
+async function loadOrdersFromBlob(): Promise<void> {
+  if (!BLOB_TOKEN) return;
+  try {
+    const { get } = await import('@vercel/blob');
+    const blob = await get(BLOB_PATH, { token: BLOB_TOKEN, access: 'private' });
+    if (!blob) return;
+    const text = await new Response(blob.stream).text();
+    const parsed = JSON.parse(text) as StoredOrder[];
+    if (!Array.isArray(parsed)) return;
+    orderStore.clear();
+    for (const order of parsed) {
+      if (order && typeof order.id === 'string') orderStore.set(order.id, order);
+    }
+  } catch (error) {
+    console.warn('[night-craving] Could not load orders from blob storage:', error);
+  }
+}
+
+async function saveOrdersToBlob(): Promise<void> {
+  if (!BLOB_TOKEN) return;
+  try {
+    const { put } = await import('@vercel/blob');
+    await put(BLOB_PATH, JSON.stringify(Array.from(orderStore.values())), {
+      access: 'private',
+      token: BLOB_TOKEN,
+      addRandomSuffix: false,
+      allowOverwrite: true,
+      contentType: 'application/json',
+    });
+  } catch (error) {
+    console.error('[night-craving] Could not save orders to blob storage:', error);
+  }
+}
+
 const COURIERS = [
   { name: 'Elena Rostova', vehicle: 'Stealth E-Bike · Insulated Box' },
   { name: 'Marcus Vance', vehicle: 'Compact EV · Heated Carrier' },
@@ -282,6 +322,25 @@ function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunctio
   next();
 }
 
+function requireAdmin(req: AuthenticatedRequest, res: Response, next: NextFunction): void {
+  const header = req.headers.authorization;
+  if (!header || !header.startsWith('Bearer ')) {
+    res.status(401).json({ error: 'Admin sign-in required.' });
+    return;
+  }
+  const payload = verifySessionToken(header.slice('Bearer '.length).trim());
+  if (!payload || payload.phone !== 'admin') {
+    res.status(401).json({ error: 'Admin session invalid or expired.' });
+    return;
+  }
+  req.user = {
+    phone: 'admin',
+    maskedPhone: 'Kitchen Admin',
+    verifiedAt: payload.verifiedAt,
+  };
+  next();
+}
+
 function computeOrderView(order: StoredOrder) {
   const totalMs = order.estimatedTotalMinutes * 60 * 1000;
   const elapsedMs = Math.max(0, Date.now() - order.createdAtMs + order.simulatedOffsetMs);
@@ -336,10 +395,14 @@ function computeOrderView(order: StoredOrder) {
   };
 }
 
-async function startServer() {
+export async function createApp() {
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json({ limit: '100kb' }));
+  app.use('/api', async (_req, _res, next) => {
+    await loadOrdersFromBlob();
+    next();
+  });
 
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok' });
@@ -465,7 +528,7 @@ async function startServer() {
     res.json({ orders: userOrders });
   });
 
-  app.post('/api/orders', requireAuth, (req: AuthenticatedRequest, res) => {
+  app.post('/api/orders', requireAuth, async (req: AuthenticatedRequest, res) => {
     const rawItems = Array.isArray(req.body?.items) ? req.body.items : [];
     const address = typeof req.body?.address === 'string' ? req.body.address.trim().slice(0, 200) : '';
     const notes = typeof req.body?.notes === 'string' ? req.body.notes.trim().slice(0, 200) : '';
@@ -534,10 +597,11 @@ async function startServer() {
     };
 
     orderStore.set(id, newOrder);
+    await saveOrdersToBlob();
     res.status(201).json({ order: computeOrderView(newOrder) });
   });
 
-  app.post('/api/orders/:id/advance', requireAuth, (req: AuthenticatedRequest, res) => {
+  app.post('/api/orders/:id/advance', requireAuth, async (req: AuthenticatedRequest, res) => {
     const orderId = String(req.params.id || '');
     const order = orderStore.get(orderId);
     if (!order || order.phone !== req.user!.phone) {
@@ -552,6 +616,61 @@ async function startServer() {
     const targetElapsedMs = Math.ceil(totalMs * targetRatios[nextStage]);
     const realElapsedMs = Date.now() - order.createdAtMs;
     order.simulatedOffsetMs = Math.max(order.simulatedOffsetMs, targetElapsedMs - realElapsedMs);
+    await saveOrdersToBlob();
+
+    res.json({ order: computeOrderView(order) });
+  });
+
+  // ---------- Kitchen admin ----------
+  app.post('/api/admin/login', (req, res) => {
+    const password = typeof req.body?.password === 'string' ? req.body.password : '';
+    const candidate = Buffer.from(password);
+    const expected = Buffer.from(ADMIN_PASSWORD);
+    if (candidate.length !== expected.length || !crypto.timingSafeEqual(candidate, expected)) {
+      res.status(401).json({ error: 'Incorrect admin password.' });
+      return;
+    }
+    const token = signSessionToken({
+      phone: 'admin',
+      verifiedAt: new Date().toISOString(),
+      exp: Date.now() + 12 * 60 * 60 * 1000,
+    });
+    res.json({ token });
+  });
+
+  app.get('/api/admin/orders', requireAdmin, (_req, res) => {
+    const orders = Array.from(orderStore.values())
+      .sort((a, b) => b.createdAtMs - a.createdAtMs)
+      .map(computeOrderView);
+    res.json({ orders });
+  });
+
+  app.get('/api/admin/stats', requireAdmin, (_req, res) => {
+    const orders = Array.from(orderStore.values()).map(computeOrderView);
+    res.json({
+      totalOrders: orders.length,
+      activeOrders: orders.filter((order) => order.stageIndex < 4).length,
+      deliveredOrders: orders.filter((order) => order.stageIndex === 4).length,
+      revenueCents: orders.reduce((sum, order) => sum + order.totalCents, 0),
+    });
+  });
+
+  app.post('/api/admin/orders/:id/advance', requireAdmin, async (req, res) => {
+    const orderId = String(req.params.id || '');
+    const order = orderStore.get(orderId);
+    if (!order) {
+      res.status(404).json({ error: 'Order not found.' });
+      return;
+    }
+
+    const totalMs = order.estimatedTotalMinutes * 60 * 1000;
+    const currentView = computeOrderView(order);
+    const targetRatios = [0, 0.16, 0.44, 0.62, 1];
+    const nextStage = Math.min(4, currentView.stageIndex + 1);
+    const targetElapsedMs = Math.ceil(totalMs * targetRatios[nextStage]);
+    const realElapsedMs = Date.now() - order.createdAtMs;
+    order.simulatedOffsetMs = Math.max(order.simulatedOffsetMs, targetElapsedMs - realElapsedMs);
+    await saveOrdersToBlob();
 
     res.json({ order: computeOrderView(order) });
   });
@@ -576,12 +695,19 @@ async function startServer() {
     });
   }
 
+  return app;
+}
+
+async function startServer() {
+  const app = await createApp();
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Night Craving server listening on http://0.0.0.0:${PORT}`);
   });
 }
 
-startServer().catch((err) => {
-  console.error('Failed to start Night Craving server:', err);
-  process.exit(1);
-});
+if (!process.env.VERCEL) {
+  startServer().catch((err) => {
+    console.error('Failed to start Night Craving server:', err);
+    process.exit(1);
+  });
+}
