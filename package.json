@@ -8,6 +8,7 @@
     "start": "cross-env NODE_ENV=production tsx server.ts",
     "build": "vite build",
     "build:pages": "cross-env VITE_STATIC_DEMO=true vite build --base /night-craving/",
+    "build:vercel": "cross-env VITE_STATIC_DEMO=true vite build",
     "preview": "vite preview",
     "lint": "tsc --noEmit"
   },
