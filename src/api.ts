@@ -163,7 +163,7 @@ export async function requestOtp(rawPhone: string): Promise<{
   previewOtp?: string;
 }> {
   if (!IS_STATIC_DEMO) {
-    return apiRequest('/api/auth/request-otp', jsonPost({ phone: rawPhone }));
+    return apiRequest('/api/request-otp', jsonPost({ phone: rawPhone }));
   }
 
   const phone = normalizePhone(rawPhone);
@@ -180,7 +180,7 @@ export async function requestOtp(rawPhone: string): Promise<{
 
 export async function verifyOtp(rawPhone: string, otp: string): Promise<AuthSession> {
   if (!IS_STATIC_DEMO) {
-    return apiRequest<AuthSession>('/api/auth/verify-otp', jsonPost({ phone: rawPhone, otp }));
+    return apiRequest<AuthSession>('/api/verify-otp', jsonPost({ phone: rawPhone, otp }));
   }
 
   const phone = normalizePhone(rawPhone);
@@ -335,13 +335,13 @@ function requireBackend(): void {
 
 export async function adminLogin(password: string): Promise<string> {
   requireBackend();
-  const data = await apiRequest<{ token: string }>('/api/admin/login', jsonPost({ password }));
+  const data = await apiRequest<{ token: string }>('/api/admin-login', jsonPost({ password }));
   return data.token;
 }
 
 export async function getAdminOrders(token: string): Promise<TrackedOrder[]> {
   requireBackend();
-  const data = await apiRequest<{ orders: TrackedOrder[] }>('/api/admin/orders', {
+  const data = await apiRequest<{ orders: TrackedOrder[] }>('/api/admin-orders', {
     headers: { Authorization: `Bearer ${token}` },
   });
   return Array.isArray(data.orders) ? data.orders : [];
@@ -349,20 +349,20 @@ export async function getAdminOrders(token: string): Promise<TrackedOrder[]> {
 
 export async function getAdminStats(token: string): Promise<AdminStats> {
   requireBackend();
-  return apiRequest<AdminStats>('/api/admin/stats', {
+  return apiRequest<AdminStats>('/api/admin-stats', {
     headers: { Authorization: `Bearer ${token}` },
   });
 }
 
 export async function advanceAdminOrder(token: string, orderId: string): Promise<void> {
   requireBackend();
-  await apiRequest(`/api/admin/orders/${encodeURIComponent(orderId)}/advance`, jsonPost({}, token));
+  await apiRequest(`/api/admin-advance?orderId=${encodeURIComponent(orderId)}`, jsonPost({}, token));
 }
 
 export async function advanceOrder(token: string, orderId: string): Promise<TrackedOrder> {
   if (!IS_STATIC_DEMO) {
     const data = await apiRequest<{ order: TrackedOrder }>(
-      `/api/orders/${encodeURIComponent(orderId)}/advance`,
+      `/api/order-advance?orderId=${encodeURIComponent(orderId)}`,
       jsonPost({}, token)
     );
     return data.order;

@@ -395,14 +395,41 @@ function computeOrderView(order: StoredOrder) {
   };
 }
 
+const API_ALIASES: Record<string, string> = {
+  '/api/request-otp': '/api/auth/request-otp',
+  '/api/verify-otp': '/api/auth/verify-otp',
+  '/api/admin-login': '/api/admin/login',
+  '/api/admin-orders': '/api/admin/orders',
+  '/api/admin-stats': '/api/admin/stats',
+};
+
+function rewriteApiAliases(req: Request, _res: Response, next: NextFunction): void {
+  const original = req.originalUrl || req.url;
+  const question = original.indexOf('?');
+  const pathname = question === -1 ? original : original.slice(0, question);
+  const query = question === -1 ? '' : original.slice(question);
+  let rewritten = API_ALIASES[pathname];
+
+  if (!rewritten && (pathname === '/api/admin-advance' || pathname === '/api/order-advance')) {
+    const params = new URLSearchParams(query.slice(1));
+    const orderId = encodeURIComponent(params.get('orderId') || '');
+    rewritten = pathname === '/api/admin-advance'
+      ? `/api/admin/orders/${orderId}/advance`
+      : `/api/orders/${orderId}/advance`;
+  }
+
+  if (rewritten) {
+    req.url = `${rewritten}${query}`;
+  }
+  next();
+}
+
 export async function createApp() {
   const app = express();
+  await loadOrdersFromBlob();
   app.disable('x-powered-by');
+  app.use(rewriteApiAliases);
   app.use(express.json({ limit: '100kb' }));
-  app.use('/api', async (_req, _res, next) => {
-    await loadOrdersFromBlob();
-    next();
-  });
 
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok' });
