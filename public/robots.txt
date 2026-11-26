@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+
+Sitemap: https://night-craving-orcin.vercel.app/sitemap.xml
