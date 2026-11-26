@@ -1,0 +1,6 @@
+{
+  "name": "Night Craving",
+  "description": "Late-night restaurant ordering with phone OTP sign-in and live order arrival tracking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
